@@ -1,0 +1,6 @@
+numpy==1.21.6
+scipy==1.7.3
+mne==0.23.4
+scikit-learn==1.0.2
+pyriemann==0.2.7
+matplotlib==3.5.2

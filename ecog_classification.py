@@ -1,5 +1,5 @@
 import os
-from scipy.io import loadmat,savemat
+from scipy.io import loadmat, savemat
 import numpy as np
 import mne
 from sklearn.decomposition import PCA
@@ -10,87 +10,125 @@ from mne.viz import ClickableImage  # noqa
 from mne.decoding import CSP
 from sklearn.pipeline import Pipeline
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-from sklearn.model_selection import ShuffleSplit, cross_val_score,cross_validate
-print('start')
-mat_pos = loadmat(os.getcwd()+ '/Ecog_data/pos.mat')
+from sklearn.model_selection import ShuffleSplit, cross_val_score, cross_validate
+
+# Informative start of the script
+print('Processing started...')
+
+# Load positional data for electrodes
+mat_pos = loadmat(os.getcwd() + '/Ecog_data/pos.mat')
 pos = mat_pos['pos']
-mat = loadmat(os.getcwd()+ '/Ecog_data/ECoG_Handpose.mat')
+
+# Load ECoG hand pose data
+mat = loadmat(os.getcwd() + '/Ecog_data/ECoG_Handpose.mat')
 y = mat['y'][:, 25:]
-# only the channels data
+
+# Extract channels data (first 60 channels)
 ch_channels = y[1:61]
-# labels per sample with 2.00025 sec cropped out
-hand_pose = y[61,1200*2+25:]
-first_pose=np.argwhere(hand_pose!=0)[0]
-all_mean = np.mean(np.mean(ch_channels[:,:int(first_pose)],axis=1),axis=0)
+
+# Extract hand pose labels, cropping the first 2 seconds (1200*2 samples)
+hand_pose = y[61, 1200*2 + 25:]
+
+# Find the first non-zero hand pose event (e.g., gesture event)
+first_pose = np.argwhere(hand_pose != 0)[0]
+
+# Compute the overall mean of the first pose event across channels
+all_mean = np.mean(np.mean(ch_channels[:, :int(first_pose)], axis=1), axis=0)
+
+# Add the mean back to the signal
 ch_channels += all_mean
-# normlaize the signals
-# for i in range(len(ch_channels)):
-#     ch_channels[i] -= np.mean(ch_channels[i])
-#     ch_channels[i] /= np.max(np.abs(ch_channels[i]))
-#set names to the ch_channels
+
+# Generate channel names for ECoG electrodes
 ch_names = ['{}'.format(i) for i in range(len(ch_channels))]
-#sample rate
-Fs = 1200 #hz
-# print(ch_names)
-#create montage and raw file for mni
-montage = mne.channels.make_dig_montage(ch_pos=dict(zip(ch_names, pos)),
-                                        coord_frame='head')
+
+# Sampling frequency for ECoG data (1200 Hz)
+Fs = 1200
+
+# Create a montage and raw MNE object using the electrode positions
+montage = mne.channels.make_dig_montage(ch_pos=dict(zip(ch_names, pos)), coord_frame='head')
 info = mne.create_info(ch_names=ch_names, sfreq=Fs, ch_types='ecog').set_montage(montage)
 new_raw = mne.io.RawArray(ch_channels, info, verbose=0)
-print('raw was created')
-#crop first 2s
-new_raw.crop(tmin=2)
-# new_raw.filter(8., 30., fir_design='firwin')
-#band pass filter only for high gamma
-new_raw.filter(50., 300., fir_design='firwin')
-# notch-filter power line frequency
-new_raw.notch_filter(np.arange(50, 351, 50),mt_bandwidth=5)#,method='iir',iir_params=dict(order=6, ftype='butter'))
-#find high amplitude and trim it from all electrodes
-all_ch = new_raw.get_data()
-# for ds in range(0, len(new_raw.get_data())):
-#     a,_ = find_peaks(new_raw.get_data()[ds, :], threshold=8e-05)
-    # if len(a)!=0:
-    #     for remove in range(0,len(a)):
-    #         all_ch = np.delete(all_ch,np.append(a[remove], [a[remove]+1, a[remove]-1]), axis=1)
-new_raw = mne.io.RawArray(all_ch, info, verbose=0)
-new_raw.plot_psd(fmin=30,fmax=350,picks=['0'])
-print(new_raw.info)
-# create epochs with labels for CSP
-events = np.argwhere(np.diff(hand_pose)!=0)+1
-events = np.append(events,np.zeros([len(events),1]),axis=1)
-events = np.append(events,hand_pose[np.argwhere(np.diff(hand_pose)!=0)+1],axis=1)
-events = np.append(np.array([[0,0,0]]),events,axis=0)
-# events = events[events[:,2]!=0]
-events = events.astype(int)
-event_id = dict(relax=0,fist=1, peace=2,open=3)
-epochs = mne.Epochs(new_raw, events, event_id,picks='ecog', tmin=0., tmax=2., baseline=None, preload=True)
-labels = epochs.events[:, -1]
-scores = []
-epochs_data = epochs.get_data()
-class_accur = []
-for j in range(1,4):
-    labels1 = np.copy(labels)
-    scores = []
-    labels1[labels != j] = 0
-    cv = ShuffleSplit(10, test_size=0.3,random_state=30)
-    cv_split = cv.split(epochs_data)
-    # Assemble a classifier
-    lda = LinearDiscriminantAnalysis()
-    csp = CSP(n_components=4, reg=None, log=True, norm_trace=False)
-    # pca = mne.decoding.UnsupervisedSpatialFilter(PCA(n_components=2,whiten=True),average=False)
-    cov_data_train = Covariances().transform(epochs_data)
-    # X = pca.fit_transform(epochs_data)
-    # X = (X ** 2).var(axis=2)
-    # mdm = MDM(metric=dict(mean='riemann', distance='riemann'))
-    clf = TSclassifier()
-    # X = np.log(X)
-    # Use scikit-learn Pipeline with cross_val_score function
-    # clf = Pipeline([('CSP', csp), ('LDA', lda)])
-    # clf = Pipeline([('LDA', lda)])
-    scores = cross_val_score(clf, cov_data_train, labels1, cv=cv, n_jobs=-1)
-    class_accur.append(np.mean(scores))
-    print("Classification accuracy: %f" % (np.mean(scores)))
-    print(class_accur)
-    print(np.mean(class_accur))
 
-print('Eidan')
+print('Raw data created successfully.')
+
+# Crop out the first 2 seconds to avoid artifacts
+new_raw.crop(tmin=2)
+
+# Apply a band-pass filter in the high gamma range (50-300 Hz)
+new_raw.filter(50., 300., fir_design='firwin')
+
+# Apply a notch filter to remove powerline noise (50 Hz and its harmonics)
+new_raw.notch_filter(np.arange(50, 351, 50), mt_bandwidth=5)
+
+# Get data after filtering for further processing
+all_ch = new_raw.get_data()
+
+# Create a new MNE raw object after potential peak trimming
+new_raw = mne.io.RawArray(all_ch, info, verbose=0)
+
+# Print summary of the raw data info
+print('Data successfully filtered and prepared. Here is a summary:')
+print(new_raw.info)
+
+# Plot the Power Spectral Density (PSD) of the raw data between 30-350 Hz
+new_raw.plot_psd(fmin=30, fmax=350, picks=['0'])
+
+# Create events for different hand poses (gestures)
+events = np.argwhere(np.diff(hand_pose) != 0) + 1
+events = np.append(events, np.zeros([len(events), 1]), axis=1)
+events = np.append(events, hand_pose[np.argwhere(np.diff(hand_pose) != 0) + 1], axis=1)
+events = np.append(np.array([[0, 0, 0]]), events, axis=0)
+events = events.astype(int)
+
+# Define event IDs corresponding to hand gestures (relax, fist, peace, open)
+event_id = dict(relax=0, fist=1, peace=2, open=3)
+
+# Create epochs (segments of data) around the events for CSP and further processing
+epochs = mne.Epochs(new_raw, events, event_id, picks='ecog', tmin=0., tmax=2., baseline=None, preload=True)
+
+# Extract labels (gestures) from the epochs
+labels = epochs.events[:, -1]
+
+# Initialize lists for storing scores
+scores = []
+epochs_data = epochs.get_data()  # Get the epochs data for the gestures
+class_accur = []  # List to store classification accuracy per class
+
+print('Starting gesture classification...')
+
+# Iterate over each gesture class (1, 2, 3 corresponds to fist, peace, open gestures)
+for j in range(1, 4):
+    labels1 = np.copy(labels)  # Copy the labels
+    scores = []
+
+    # Set labels not equal to the current gesture class to 0
+    labels1[labels != j] = 0
+
+    # Create a ShuffleSplit cross-validator (10 splits, 30% test data)
+    cv = ShuffleSplit(10, test_size=0.3, random_state=30)
+    cv_split = cv.split(epochs_data)  # Split the data into training and test sets
+
+    # Assemble a classifier pipeline
+    lda = LinearDiscriminantAnalysis()  # LDA classifier
+    csp = CSP(n_components=4, reg=None, log=True, norm_trace=False)  # CSP for feature extraction
+
+    # Compute covariance matrices for each epoch (used in Riemannian classifiers)
+    cov_data_train = Covariances().transform(epochs_data)
+
+    # Using Riemannian geometry classifier
+    clf = TSclassifier()
+
+    # Perform cross-validation and compute classification accuracy
+    scores = cross_val_score(clf, cov_data_train, labels1, cv=cv, n_jobs=-1)
+
+    # Store the mean accuracy score for the current gesture class
+    class_accur.append(np.mean(scores))
+
+    # Print the classification accuracy for the current gesture
+    print(f"Classification accuracy for gesture {j}: {np.mean(scores) * 100:.2f}%")
+
+# Print overall classification accuracy
+print(f"Overall classification accuracy: {np.mean(class_accur) * 100:.2f}%")
+
+# End of the script
+print('Processing completed.')
